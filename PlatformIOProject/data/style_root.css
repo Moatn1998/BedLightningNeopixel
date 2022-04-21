@@ -1,0 +1,93 @@
+html {font-family: Monaco, Monospace; display: inline-block; text-align: center;}
+    h2 {font-size: 1.3rem;}
+    p {font-size: 0.9rem;}
+
+    body {max-width: 400px; margin:0px auto; padding-bottom: 25px; background-color: #1d1e22; color: #adb7bd}
+    .slider1 { -webkit-appearance: none; margin: 14px; width: 360px; height: 15px; background: #D3D3D3;
+      outline: none; -webkit-transition: .2s; transition: opacity .2s;}
+    .slider1::-webkit-slider-thumb {-webkit-appearance: none; appearance: none; width: 20px; height: 20px; background: #2196F3; cursor: pointer;}
+    .slider1::-moz-range-thumb { width: 20px; height: 20px; background: #2196F3; cursor: pointer; }
+	
+      .button {
+        padding: 5px 10px;
+        font-size: 10px;
+        text-align: center;
+        outline: none;
+        color: #fff;
+        background-color: #2f4468;
+        border: none;
+        border-radius: 5px;
+        box-shadow: 0 6px #999;
+        cursor: pointer;
+        -webkit-touch-callout: none;
+        -webkit-user-select: none;
+        -khtml-user-select: none;
+        -moz-user-select: none;
+        -ms-user-select: none;
+        user-select: none;
+        -webkit-tap-highlight-color: rgba(0,0,0,0);
+      }  
+      .button:hover {background-color: #1f2e45}
+      .button:active {
+        background-color: #1f2e45;
+        box-shadow: 0 4px #666;
+        transform: translateY(2px);
+      }
+
+
+
+.switch {position: relative;display: inline-block;width: 60px;height: 34px;}
+
+.switch input {display: none}
+
+.slider2 {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: #ccc;
+}
+
+.slider2:before {
+  position: absolute;
+  content: "";
+  height: 26px;
+  width: 26px;
+  left: 4px;
+  bottom: 4px;
+  background-color: #fff;
+  -webkit-transition: .4s;
+  transition: .4s;
+}
+
+input:checked + .slider2 {
+  background-color: #2196F3;
+}
+
+
+input:checked + .slider2:before {
+  -webkit-transform: translateX(26px);
+  -ms-transform: translateX(26px);
+  transform: translateX(26px);
+}
+
+
+a:link {
+  color: white;
+}
+
+/* visited link */
+a:visited {
+  color: white;
+}
+
+/* mouse over link */
+a:hover {
+  color: green;
+}
+
+/* selected link */
+a:active {
+  color: blue;
+}

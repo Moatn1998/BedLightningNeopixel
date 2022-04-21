@@ -1,0 +1,51 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+   <link rel="icon" href="data:,">
+  <title>Bettbeleuchtung</title>
+  <link rel="stylesheet" type="text/css" href="style_root.css">
+  <script type="text/javascript" src="javascript.js"></script>
+</head>
+<body>
+<h1>Bettbeleuchtung</h1>
+
+  <h2>Rot</h2>
+  <p><span id="textSliderValueRot">%SLIDERVALUE_ROT%</span></p>
+  <p><input type="range" onchange="updateSliderNeopixelRot(this)" id="SliderRot" min="0" max="255" value="%SLIDERVALUE_ROT%" step="1" class="slider1"></p>
+  
+  <h2>Gruen</h2>
+  <p><span id="textSliderValueGruen">%SLIDERVALUE_GRUEN%</span></p>
+  <p><input type="range" onchange="updateSliderNeopixelGruen(this)" id="SliderGruen" min="0" max="255" value="%SLIDERVALUE_GRUEN%" step="1" class="slider1"></p>
+
+  <h2>Blau</h2>
+  <p><span id="textSliderValueBlau">%SLIDERVALUE_Blau%</span></p>
+  <p><input type="range" onchange="updateSliderNeopixelBlau(this)" id="SliderBlau" min="0" max="255" value="%SLIDERVALUE_BLAU%" step="1" class="slider1"></p>
+
+  <select id="animation" onchange="updateSelectionList(this)">
+    <option value="rgb">RGB-Beleuchtung</option>
+    <option value="weiss">Weisse Beleuchtung</option>
+    <option value="color_wipe">Color Wipe</option>
+    <option value="theater_chase">Theater Chase</option>
+    <option value="rainbow">Rainbow</option>
+    <option value="theater_chase_rainbow">Theater Chase Rainbow</option>
+    <option value="puff_modus">Puff-Modus</option>
+    <option value="cylon_bounce">Cylon Bounce</option>
+    <option value="sparkle">Sparkle</option>
+    <option value="runnings_lights">Running Lights</option>
+    <option value="fire">Fire</option>
+    <option value="bouncing_balls">Bouncing Balls</option>
+    <option value="bouncing_balls_colored">Bouncing Balls Colored</option>
+    <option value="meteor_rain">Meteor Rain</option>
+    <option value="fire_animation">Fire Animation</option>
+  </select>
+  
+  %BUTTONPLACEHOLDER%
+
+  <p><a href="/ListTriggeredPIRs">Timestamps triggered PIR modules</a></p>
+
+  <button class="button" onmousedown="toggleButton('reboot');" ontouchstart="toggleButton('reboot');" onmouseup="toggleButton('dontcare');" ontouchend="toggleButton('dontcare');">Reboot ESP32</button>
+
+  <button class="button" onmousedown="toggleButton('clearstrip');" ontouchstart="toggleButton('clearstrip');" onmouseup="toggleButton('dontcare');" ontouchend="toggleButton('dontcare');">Clear Strip</button>
+</body>
+</html>

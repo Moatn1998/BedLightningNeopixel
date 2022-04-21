@@ -1,0 +1,24 @@
+html {font-family: Monaco, Monospace; display: inline-block; text-align: center;}
+    h2 {font-size: 1.3rem;}
+    p {font-size: 0.9rem;}
+
+    body {max-width: 400px; margin:0px auto; padding-bottom: 25px; background-color: #1d1e22; color: #adb7bd}
+
+a:link {
+  color: white;
+}
+
+/* visited link */
+a:visited {
+  color: white;
+}
+
+/* mouse over link */
+a:hover {
+  color: green;
+}
+
+/* selected link */
+a:active {
+  color: blue;
+}
