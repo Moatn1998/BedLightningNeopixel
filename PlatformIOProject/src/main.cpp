@@ -5,21 +5,25 @@
 #include <WiFi.h>
 #include <AsyncTCP.h>
 #include <ESPAsyncWebServer.h>
+// SPIFFS
 #include "SPIFFS.h"
+// Own libraries
+#include <Website.hpp>
+#include <Neopixelstrip.hpp>
 #include "definitions.h"
-
+// Library is self included in /include and /source cause there was an error when the library was taken with platform.ini
+#include "avdweb_Switch.h"
 
 /* TODOS
-- try different values for setBrightness of Neopixel
-- test of buttons
+- delay_between_animations aufloesen (evtl)
+- evtl reset in die Neopixelstrip-Funktionen, sodass die static-Variablen nach einer Zeit zurueckgesetzt werden, damit bei
+  erneuter Ausfuehrung einer Animation nicht der Stand vor zb 5h verwendet wird, sondern die Animation wirklich beim Initialzustand beginnt
 */
 
 // Website
-#include <Website.hpp>
 Website myWebsite = Website();
 
 // Neopixel
-#include <Neopixelstrip.hpp>
 const uint8_t number_leds = 143;
 const uint8_t neopixel_pin = 4;
 Neopixelstrip myStrip = Neopixelstrip(number_leds, neopixel_pin, &myWebsite);
@@ -27,7 +31,6 @@ Neopixelstrip myStrip = Neopixelstrip(number_leds, neopixel_pin, &myWebsite);
 // Wifi
 unsigned long timestamp_wifi_connection = 0;
 unsigned long interval_wifi_connection = 60000;
-
 
 // Time
 const char *ntpServer = "pool.ntp.org";
@@ -38,38 +41,47 @@ uint8_t hour = 0;
 unsigned long timestamp_time_update = 0;
 unsigned long get_new_time_interval = 900000;
 unsigned long duration_of_animation_before_turned_off = 3600000; // [ms]
-const uint16_t delay_between_animations = 25;
+const uint16_t delay_between_animations = 2;                    // 25;
 
 // PIR Sensor - motion detector
 const uint8_t pir_pin_Martin = 26;
 const uint8_t pir_pin_Fussteil = 25;
 const uint8_t pir_pin_Nadja = 33;
-volatile uint8_t last_triggered_pir_module = 0;
+//PIRs implemented as buttons
+Switch pir_martin = Switch(pir_pin_Martin, INPUT, HIGH, 10, 200, 250, 10);
+Switch pir_fussteil = Switch(pir_pin_Fussteil, INPUT, HIGH, 10, 200, 250, 10);
+Switch pir_nadja = Switch(pir_pin_Nadja, INPUT, HIGH, 10, 200, 250, 10);
+// behavior variables for PIRs
+uint8_t last_triggered_pir_module = 0; // 1=Martin, 2=Fuß, 3=Nadja
 unsigned long timestamp_pir_module_triggered = millis();
-unsigned long duration_lightning_pir_triggered = 45000;
-// mux-object for interrupt-functions
-portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED;
-
-// interruption due to PIR sensors occurred?
-volatile bool interruptionOccurred = false;
-
+#ifndef TEST_MODE
+  unsigned long duration_lightning_pir_triggered = 45000; // [ms]
+#else
+  unsigned long duration_lightning_pir_triggered = 7000;
+#endif
+// more PIR flags 
 bool blocked_pir_modules_because_it_is_day = false;
 bool blocked_pir_modules_because_animation_is_active = false;
 bool light_triggered_due_to_pirs = false;
 
+// interruption due to PIR sensors occurred?
+bool interruptionOccurred = false;
 // first entry to a certain (= rgb, white or puff) state? ==> call function, otherwise do not keep calling the same function w/o any effect
-volatile bool first_entry_to_state = true;
-
+bool first_entry_to_state = true;
+// Flag that for clearing the strip ==> if true, strip will be cleared!
+bool clear_strip = false;
 
 // Buttons
-const uint8_t button_next_animation_martin = 19;
-const uint8_t button_white_light_martin = 18;
-const uint8_t button_next_animation_nadja = 14;
-const uint8_t button_white_light_nadja = 12;
-const uint16_t button_bounce_time = 200; // [ms]
-
-// Flag that for clearing the strip==> if true, strip will be cleared!
-bool clear_strip = false;
+const uint8_t pin_button_next_animation_martin = 15;
+const uint8_t pin_button_white_light_martin = 17;
+const uint8_t pin_button_next_animation_nadja = 14;
+const uint8_t pin_button_white_light_nadja = 12;
+// deglitch: make buttons more robust against noise pulses ==> during deglitchPeriod the input of a button has to be the same so that the callback is executed
+const int deglitchPeriod = 20; // [ms]
+Switch button_next_anim_martin = Switch(pin_button_next_animation_martin, INPUT_PULLUP, LOW, 50, 300, 250, deglitchPeriod);
+Switch button_white_anim_martin = Switch(pin_button_white_light_martin, INPUT_PULLUP, LOW, 50, 300, 250, deglitchPeriod);
+Switch button_next_anim_nadja = Switch(pin_button_next_animation_nadja, INPUT_PULLUP, LOW, 50, 300, 250, deglitchPeriod);
+Switch button_white_anim_nadja = Switch(pin_button_white_light_nadja, INPUT_PULLUP, LOW, 50, 300, 250, deglitchPeriod);
 
 ///////////////////////////// Webserver
 // Slider keyword
@@ -77,25 +89,25 @@ const char *PARAM_INPUT = "value";
 // Switches keywords
 const char *PARAM_INPUT_1 = "output";
 const char *PARAM_INPUT_2 = "state";
-// Wlan Zugangsdaten
-const char *ssid = "YOUR_SSID";
-const char *password = "YOUR_PASSWORD";
-// Object
+// Wifi keys
+const char *ssid = "FRITZ!Box 6490 Cable 2_4 GHz";
+const char *password = "46782964961090263327";
+// AsyncWebServer-object
 AsyncWebServer server(80);
 
-// defined functions
+// function declarations
 void actionsOnSwitchMoves(String, String);
 void pir_triggered();
-
-void get_Local_Time();
+void callback_button_next_animation(void* s);
+void callback_button_white_light(void* s);
+#ifndef TEST_MODE
+  void get_Local_Time();
+#endif
 void giveTimestampOfTriggeredPirModule();
 
-
-
-// Replaces placeholder with button section in your web page
+// Replaces placeholder on webpage
 String processor(const String &var)
 {
-  //Serial.println(var);
   if (var == "SLIDERVALUE_ROT")
   {
     return myWebsite.get_sliderRot();
@@ -119,10 +131,9 @@ String processor(const String &var)
   return String();
 }
 
-// Replaces placeholder with button section in your web page
+// Replaces placeholder with button section in web page
 String processor2(const String &var)
 {
-  //Serial.println(var);
   if (var == "LISTPLACEHOLDER")
   {
     return myWebsite.get_list_timestamps_pir_triggered();
@@ -130,170 +141,132 @@ String processor2(const String &var)
   return String();
 }
 
-
 ///////////////////////////////////////////////////////////
 // PIR 1 (Martin) triggered function
-void IRAM_ATTR lightning_pir1_moduletriggered()
+void lightning_pir_martin_moduletriggered(void* s)
 {
-  portENTER_CRITICAL_ISR(&mux);
-  if (myWebsite.get_blocked_pir_modules() || blocked_pir_modules_because_it_is_day || blocked_pir_modules_because_animation_is_active || light_triggered_due_to_pirs)
-  {
-    // dont do anything
-  }
-  else
-  {
-    // Set bool variable to true ==> LED Strip is enabled in the loop method
-    interruptionOccurred = true;
+    if (myWebsite.get_blocked_pir_modules() || blocked_pir_modules_because_it_is_day || blocked_pir_modules_because_animation_is_active || light_triggered_due_to_pirs)
+    {
+      // dont do anything
+    }
+    else
+    {
+      // Set bool variable to true ==> LED Strip is enabled in the loop method
+      #ifndef BLOCK_PIR_MARTIN
+        interruptionOccurred = true;
+      #endif
 
-    last_triggered_pir_module = 1;
-  }
-  portEXIT_CRITICAL_ISR(&mux);
+      last_triggered_pir_module = 1;
+    }
 }
 
 // PIR 2 (Fussteil) triggered function
-void IRAM_ATTR lightning_pir2_moduletriggered()
+void lightning_pir_fussteil_moduletriggered(void* s)
 {
-  portENTER_CRITICAL_ISR(&mux);
-  if (myWebsite.get_blocked_pir_modules() || blocked_pir_modules_because_it_is_day || blocked_pir_modules_because_animation_is_active || light_triggered_due_to_pirs)
-  {
-    // dont do anything
-  }
-  else
-  {
-    // Set bool variable to true ==> LED Strip is enabled in the loop method
-    interruptionOccurred = true;
+    if (myWebsite.get_blocked_pir_modules() || blocked_pir_modules_because_it_is_day || blocked_pir_modules_because_animation_is_active || light_triggered_due_to_pirs)
+    {
+      // dont do anything
+    }
+    else
+    {
+      // Set bool variable to true ==> LED Strip is enabled in the loop method
+      #ifndef BLOCK_PIR_FUSSTEIL
+        interruptionOccurred = true;
+      #endif
 
-    last_triggered_pir_module = 2;
-  }
-  portEXIT_CRITICAL_ISR(&mux);
+      last_triggered_pir_module = 2;
+    }
 }
 
 // PIR 3 (Nadja) triggered function
-void IRAM_ATTR lightning_pir3_moduletriggered()
+void lightning_pir_nadja_moduletriggered(void* s)
 {
-  portENTER_CRITICAL_ISR(&mux);
-  if (myWebsite.get_blocked_pir_modules() || blocked_pir_modules_because_it_is_day || blocked_pir_modules_because_animation_is_active || light_triggered_due_to_pirs)
-  {
-    // dont do anything
-  }
-  else
-  {
-    // Set bool variable to true ==> LED Strip is enabled in the loop method
-    // interruptionOccurred = true; // not activated cause of Rio
+    if (myWebsite.get_blocked_pir_modules() || blocked_pir_modules_because_it_is_day || blocked_pir_modules_because_animation_is_active || light_triggered_due_to_pirs)
+    {
+      // dont do anything
+    }
+    else
+    {
+      // Set bool variable to true ==> LED Strip is enabled in the loop method
+      #ifndef BLOCK_PIR_NADJA
+        interruptionOccurred = true;
+      #endif
 
-    last_triggered_pir_module = 3;
-  }
-  portEXIT_CRITICAL_ISR(&mux);
+      last_triggered_pir_module = 3;
+    }
 }
 
 /*
-ISR function for switching to next animation
+button callback function to switch to next animation
 1. if no animation is active ==> activate animation
 2. else ==> switch to next animation
 */
-void IRAM_ATTR isr_button_next_animation()
+void callback_button_next_animation(void *s)
 {
-  static unsigned long last_interrupt_time = 0;
-  unsigned long interrupt_time = millis();
-  if ((unsigned long)(interrupt_time - last_interrupt_time) > button_bounce_time)
+  if (!myWebsite.get_animation_active())
   {
-      portENTER_CRITICAL_ISR(&mux);
-      if (!myWebsite.get_animation_active())
-      {
-        myWebsite.set_animation_active(true);
-      }
-      else
-      {
-        myWebsite.select_next_animation();
-      }
-      first_entry_to_state = true;
-      portEXIT_CRITICAL_ISR(&mux);
+    // set animation to active
+    actionsOnSwitchMoves("1", "1");
+    // myWebsite.set_animation_active(true);
+    myWebsite.update_selected_animation("rgb"); // if no animation is active, always start with rgb
+    // blocked_pir_modules_because_animation_is_active = true;
   }
-  last_interrupt_time = interrupt_time;
+  else
+  {
+    myWebsite.select_next_animation();
+    blocked_pir_modules_because_animation_is_active = true;
+  }
+  first_entry_to_state = true;
+  #ifdef DEBUG_MODE
+    Serial.println("  BUTTON - NEXT anim");
+  #endif
 }
 
-
 /*
-ISR function for enabling white light
+button callback function to enable white light
 1. if another animation is active ==> change to white light
 2. if white light is already active ==> deactive white light and clear strip
 3. no animation active ==> activate white light
 */
-void IRAM_ATTR isr_button_white_light()
+void callback_button_white_light(void* s)
 {
-  static unsigned long last_interrupt_time = 0;
-  unsigned long interrupt_time = millis();
-  if ((unsigned long)(interrupt_time - last_interrupt_time) > button_bounce_time)
+  #ifdef DEBUG_MODE
+    Serial.println("  BUTTON - WHITE anim");
+  #endif
+  if (myWebsite.get_animation_active() && myWebsite.get_selected_animation() != WEISS) // Animation active but not white light
   {
-    portENTER_CRITICAL_ISR(&mux);
-    if (myWebsite.get_animation_active() && myWebsite.get_selected_animation() != WEISS) // Animation active but not white light
-    {  
-      myWebsite.update_selected_animation("weiss"); // just change the selected animation so that white light will be activated in loop()
-      first_entry_to_state = true;
-    }
-    else if (myWebsite.get_animation_active()) // white light active ==> clear the strip
-    {
-      myWebsite.updateWebsite(1);
-      clear_strip = true;
-    }
-    else // no animation active ==> enable white light
-    {
-      myWebsite.update_selected_animation("weiss");
-      myWebsite.updateWebsite(1);
-      first_entry_to_state = true;
-    }
-    portEXIT_CRITICAL_ISR(&mux);
+    myWebsite.update_selected_animation("weiss"); // just change the selected animation so that white light will be activated in loop()
+    first_entry_to_state = true;
   }
-  last_interrupt_time = interrupt_time;
+  else if (myWebsite.get_animation_active()) // white light active ==> clear the strip
+  {
+    actionsOnSwitchMoves("1", "0");
+    clear_strip = true;
+    blocked_pir_modules_because_animation_is_active = false;
+  }
+  else // no animation active ==> enable white light
+  {
+    myWebsite.update_selected_animation("weiss");
+    actionsOnSwitchMoves("1", "1");
+    first_entry_to_state = true;
+  }
 }
 
-void setup_PIRs()
-{
-  pinMode(pir_pin_Martin, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(pir_pin_Martin), lightning_pir1_moduletriggered, RISING);
-
-  pinMode(pir_pin_Fussteil, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(pir_pin_Fussteil), lightning_pir2_moduletriggered, RISING);
-
-  pinMode(pir_pin_Nadja, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(pir_pin_Nadja), lightning_pir3_moduletriggered, RISING);
-}
-
-
-void setup_buttons()
-{
-  pinMode(button_next_animation_martin, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(button_next_animation_martin), isr_button_next_animation, RISING);
-
-  pinMode(button_next_animation_nadja, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(button_next_animation_nadja), isr_button_next_animation, RISING);
-
-  pinMode(button_white_light_martin, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(button_white_light_martin), isr_button_white_light, RISING);
-
-  pinMode(button_white_light_nadja, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(button_white_light_nadja), isr_button_white_light, RISING);
-}
 
 void setup()
 {
   // Initialize SPIFFS
-  if(!SPIFFS.begin(true)){
-    #ifdef DEBUG_MODE
-      Serial.println("An Error has occurred while mounting SPIFFS");
-    #endif
+  if (!SPIFFS.begin(true))
+  {
+#ifdef DEBUG_MODE
+    Serial.println("An Error has occurred while mounting SPIFFS");
+#endif
     return;
   }
 
-  #ifdef DEBUG_MODE
-    Serial.begin(115200);
-  #endif
-
-  // PIR Sensoren
-  setup_PIRs();
-
-  // Buttons
-  setup_buttons();
+#if defined(DEBUG_MODE) || defined(LOOP_TIME)
+  Serial.begin(115200);
+#endif
 
   // Webserver
   // Connect to Wi-Fi
@@ -301,42 +274,35 @@ void setup()
   while (WiFi.status() != WL_CONNECTED)
   {
     delay(1000);
-    #ifdef DEBUG_MODE
-      Serial.println("Connecting to WiFi..");
-    #endif
+#ifdef DEBUG_MODE
+    Serial.println("Connecting to WiFi..");
+#endif
   }
-  #ifdef DEBUG_MODE
-    // Print ESP Local IP Address
-    Serial.println(WiFi.localIP());
-  #endif
+#ifdef DEBUG_MODE
+  // Print ESP Local IP Address
+  Serial.println(WiFi.localIP());
+#endif
 
   // Init and get the time
   configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
 
   // Route for root / web page
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
-            {
-              request->send(SPIFFS, "/index_root.html", String(), false, processor);
-            });
-  
+            { request->send(SPIFFS, "/index_root.html", String(), false, processor); });
+
   // Route to load the javascript file
-  server.on("/javascript.js", HTTP_GET, [](AsyncWebServerRequest *request){
-    request->send(SPIFFS, "/javascript.js", "text/javascript");
-  });
+  server.on("/javascript.js", HTTP_GET, [](AsyncWebServerRequest *request)
+            { request->send(SPIFFS, "/javascript.js", "text/javascript"); });
   // Route to load style_root.css file
-  server.on("/style_root.css", HTTP_GET, [](AsyncWebServerRequest *request){
-    request->send(SPIFFS, "/style_root.css", "text/css");
-  });
+  server.on("/style_root.css", HTTP_GET, [](AsyncWebServerRequest *request)
+            { request->send(SPIFFS, "/style_root.css", "text/css"); });
   // Route to load style_timestamps_pir.css file
-  server.on("/style_timestamps_pir.css", HTTP_GET, [](AsyncWebServerRequest *request){
-    request->send(SPIFFS, "/style_timestamps_pir.css", "text/css");
-  });
+  server.on("/style_timestamps_pir.css", HTTP_GET, [](AsyncWebServerRequest *request)
+            { request->send(SPIFFS, "/style_timestamps_pir.css", "text/css"); });
 
   // List of timestamps of triggered PIR modules
   server.on("/ListTriggeredPIRs", HTTP_GET, [](AsyncWebServerRequest *request)
-            {
-              request->send(SPIFFS, "/index_timestamps_pir.html", String(), false, processor2);
-            });
+            { request->send(SPIFFS, "/index_timestamps_pir.html", String(), false, processor2); });
 
   // Send a GET request to <ESP_IP>/sliderRot?value=<inputMessage>
   server.on("/sliderRot", HTTP_GET, [](AsyncWebServerRequest *request)
@@ -353,8 +319,7 @@ void setup()
               {
                 inputMessage = "No message sent";
               }
-              request->send(200, "text/plain", "OK");
-            });
+              request->send(200, "text/plain", "OK"); });
 
   // Send a GET request to <ESP_IP>/sliderGruen?value=<inputMessage>
   server.on("/sliderGruen", HTTP_GET, [](AsyncWebServerRequest *request)
@@ -371,8 +336,7 @@ void setup()
               {
                 inputMessage = "No message sent";
               }
-              request->send(200, "text/plain", "OK");
-            });
+              request->send(200, "text/plain", "OK"); });
 
   // Send a GET request to <ESP_IP>/sliderBlau?value=<inputMessage>
   server.on("/sliderBlau", HTTP_GET, [](AsyncWebServerRequest *request)
@@ -389,8 +353,7 @@ void setup()
               {
                 inputMessage = "No message sent";
               }
-              request->send(200, "text/plain", "OK");
-            });
+              request->send(200, "text/plain", "OK"); });
 
   // Send a GET request to <ESP_IP>/update?output=<inputMessage1>&state=<inputMessage2>
   server.on("/update", HTTP_GET, [](AsyncWebServerRequest *request)
@@ -411,8 +374,7 @@ void setup()
                 inputMessage1 = "No message sent";
                 inputMessage2 = "No message sent";
               }
-              request->send(200, "text/plain", "OK");
-            });
+              request->send(200, "text/plain", "OK"); });
 
   server.on("/selection_list", HTTP_GET, [](AsyncWebServerRequest *request)
             {
@@ -422,34 +384,31 @@ void setup()
                 inputMessage = request->getParam(PARAM_INPUT)->value();
                 myWebsite.update_selected_animation(inputMessage);
                 first_entry_to_state = true; // guarantee that animation is performed at least once
+                myStrip.clear_show();  // clear strip, if a new animation is chosen
               }
               else
               {
                 inputMessage = "No message sent";
               }
-              request->send(200, "text/plain", "OK");
-            });
+              request->send(200, "text/plain", "OK"); });
 
   // Reboot ESP32 if corresponding button is pushed
   server.on("/reboot", HTTP_GET, [](AsyncWebServerRequest *request)
             {
               request->send(200, "text/plain", "ok");
-              #ifdef DEBUG_MODE
+#ifdef DEBUG_MODE
                 Serial.println("ESP32 wird neugestartet.");
-              #endif
-              ESP.restart();
-            });
-  
+#endif
+              ESP.restart(); });
+
   // Clear strip if corresponding button is pushed
   server.on("/clearstrip", HTTP_GET, [](AsyncWebServerRequest *request)
             {
               request->send(200, "text/plain", "ok");
-              #ifdef DEBUG_MODE
+#ifdef DEBUG_MODE
                 Serial.println("Strip wird gecleared!");
-              #endif
-              myStrip.clear_show();
-            });
-  
+#endif
+              myStrip.clear_show(); });
 
   server.on("/off", HTTP_GET, [](AsyncWebServerRequest *request)
             { request->send(200, "text/plain", "ok"); });
@@ -460,20 +419,75 @@ void setup()
   // Neopixel
   myStrip.begin();
   myStrip.clear_show();
-  myStrip.setBrightness(50);
+  myStrip.setBrightness(100);
 
+  // Call function at the beginning so that time is known for blocking PIR-Modules
+  #ifndef TEST_MODE
+    get_Local_Time();
+  #endif
+  
+  // PIR sensors
+  pir_martin.setPushedCallback(&lightning_pir_martin_moduletriggered, nullptr);
+  pir_fussteil.setPushedCallback(&lightning_pir_fussteil_moduletriggered, nullptr);
+  pir_nadja.setPushedCallback(&lightning_pir_nadja_moduletriggered, nullptr);
+
+  // setup buttons
+  button_next_anim_martin.setPushedCallback(&callback_button_next_animation, nullptr);
+  button_white_anim_martin.setPushedCallback(&callback_button_white_light, nullptr);
+  button_next_anim_nadja.setPushedCallback(&callback_button_next_animation, nullptr);
+  button_white_anim_nadja.setPushedCallback(&callback_button_white_light, nullptr);
 }
 
+#ifdef LOOP_TIME
+  int counter = 0;
+  const int num_iterations = 1000;
+  unsigned long timestamp_start = millis();
+#endif
 
 // Loop function
 void loop()
 {
+  #ifdef LOOP_TIME
+    if (counter >= num_iterations)
+    {
+      unsigned long now = millis();
+      unsigned long time_took = now - timestamp_start;
+      timestamp_start = now;
+      counter = 0;
+      Serial.print("Average loop time in ms/1000cycles: ");
+      Serial.println(time_took);
+    }
+    counter++;
+  #endif
+
+  // Read PIR states
+  pir_martin.poll();
+  pir_fussteil.poll();
+  pir_nadja.poll();
+
+  // Read button states
+  button_next_anim_martin.poll();
+  button_white_anim_martin.poll();
+  button_next_anim_nadja.poll();
+  button_white_anim_nadja.poll();
+
+
+  // Clear strip if a new animation was chosen betwenn two loop iterations
+  if (myWebsite.get_selected_animation() != myWebsite.get_previous_animation())
+  {
+    myWebsite.update_previous_animation();
+    myStrip.clear_show();
+    #ifdef DEBUG_MODE
+      Serial.println("cleared strip cause selected animation changed between two loop interations");
+    #endif
+  }
+  
   if ((unsigned long)(millis() - timestamp_wifi_connection) > interval_wifi_connection)
   {
     timestamp_wifi_connection = millis();
-    if(WiFi.status() != WL_CONNECTED)
+    if (WiFi.status() != WL_CONNECTED)
     {
-      WiFi.begin(ssid, password);  
+      WiFi.begin(ssid, password);
     }
   }
 
@@ -481,11 +495,13 @@ void loop()
   pir_triggered();
 
   // check if new timestamp should be recorded
+  #ifndef TEST_MODE
   if ((unsigned long)(millis() - timestamp_time_update) > get_new_time_interval)
   {
     timestamp_time_update = millis();
     get_Local_Time();
   }
+  #endif
 
   // Main "state"-machine
   if (myWebsite.get_animation_active())
@@ -494,15 +510,16 @@ void loop()
     if ((unsigned long)(millis() - myWebsite.get_timestamp_animation_active()) > duration_of_animation_before_turned_off)
     {
       clear_strip = true;
+      blocked_pir_modules_because_animation_is_active = false;
       myWebsite.set_animation_active(false);
     }
-    
 
     else if (myWebsite.get_selected_animation() == RGB)
     {
       if (first_entry_to_state)
       {
         first_entry_to_state = false;
+        myStrip.clear_show();
         myStrip.rgb_live_update();
       }
     }
@@ -512,10 +529,11 @@ void loop()
       if (first_entry_to_state)
       {
         first_entry_to_state = false;
+        myStrip.clear_show();
         myStrip.weisseBeleuchtung();
-        #ifdef DEBUG_MODE
-          Serial.println("Weiss wurde gesetzt.");
-        #endif
+#ifdef DEBUG_MODE
+        Serial.println("Weiss wurde gesetzt.");
+#endif
       }
     }
 
@@ -523,9 +541,9 @@ void loop()
     else if (myWebsite.get_selected_animation() == COLOR_WIPE)
     {
       myStrip.colorWipeAnimation();
-      #ifdef DEBUG_MODE
-        Serial.println("Color Wipe einmal ausgefuehrt.");
-      #endif
+#ifdef DEBUG_MODE
+      Serial.println("Color Wipe einmal ausgefuehrt.");
+#endif
       delay(delay_between_animations);
     }
 
@@ -533,9 +551,9 @@ void loop()
     else if (myWebsite.get_selected_animation() == THEATER_CHASE)
     {
       myStrip.theaterChaseAnimation();
-      #ifdef DEBUG_MODE
-        Serial.println("Theater Chase einmal ausgefuehrt.");
-      #endif
+#ifdef DEBUG_MODE
+      Serial.println("Theater Chase einmal ausgefuehrt.");
+#endif
       delay(delay_between_animations);
     }
 
@@ -543,9 +561,9 @@ void loop()
     else if (myWebsite.get_selected_animation() == RAINBOW)
     {
       myStrip.rainbow(20);
-      #ifdef DEBUG_MODE
-        Serial.println("Rainbow einmal ausgefuehrt.");
-      #endif
+#ifdef DEBUG_MODE
+      Serial.println("Rainbow einmal ausgefuehrt.");
+#endif
       delay(delay_between_animations);
     }
 
@@ -553,9 +571,9 @@ void loop()
     else if (myWebsite.get_selected_animation() == THEATER_CHASE_RAINBOW)
     {
       myStrip.theaterChaseRainbow(50);
-      #ifdef DEBUG_MODE
-        Serial.println("Theater Chase Rainbow einmal ausgefuehrt.");
-      #endif
+#ifdef DEBUG_MODE
+      Serial.println("Theater Chase Rainbow einmal ausgefuehrt.");
+#endif
       delay(delay_between_animations);
     }
 
@@ -564,10 +582,11 @@ void loop()
     {
       if (first_entry_to_state)
       {
-        #ifdef DEBUG_MODE
-          Serial.println("Puff-Modus aktiviert.");
-        #endif
+#ifdef DEBUG_MODE
+        Serial.println("Puff-Modus aktiviert.");
+#endif
         first_entry_to_state = false;
+        myStrip.clear_show();
         myStrip.puffModus();
       }
     }
@@ -576,9 +595,9 @@ void loop()
     else if (myWebsite.get_selected_animation() == CYLON_BOUNCE)
     {
       myStrip.CylonBounce(0xff, 0, 0, 4, 10, 50);
-      #ifdef DEBUG_MODE
-        Serial.println("Cylon Bounce einmal ausgefuehrt.");
-      #endif
+#ifdef DEBUG_MODE
+      Serial.println("Cylon Bounce einmal ausgefuehrt.");
+#endif
       delay(delay_between_animations);
     }
 
@@ -586,9 +605,9 @@ void loop()
     else if (myWebsite.get_selected_animation() == SPARKLE)
     {
       myStrip.Sparkle(0xff, 0xff, 0xff, 0);
-      #ifdef DEBUG_MODE
-        Serial.println("Sparkle einmal ausgefuehrt.");
-      #endif
+#ifdef DEBUG_MODE
+      Serial.println("Sparkle einmal ausgefuehrt.");
+#endif
       delay(delay_between_animations);
     }
 
@@ -596,9 +615,9 @@ void loop()
     else if (myWebsite.get_selected_animation() == RUNNING_LIGHTS)
     {
       myStrip.RunningLights(0xff, 0xff, 0x00, 50);
-      #ifdef DEBUG_MODE
-        Serial.println("Running Lights einmal ausgefuehrt.");
-      #endif
+#ifdef DEBUG_MODE
+      Serial.println("Running Lights einmal ausgefuehrt.");
+#endif
       delay(delay_between_animations);
     }
 
@@ -606,19 +625,19 @@ void loop()
     else if (myWebsite.get_selected_animation() == FIRE)
     {
       myStrip.Fire(55, 120, 15);
-      #ifdef DEBUG_MODE
-        Serial.println("Fire einmal ausgefuehrt.");
-      #endif
+#ifdef DEBUG_MODE
+      Serial.println("Fire einmal ausgefuehrt.");
+#endif
       delay(delay_between_animations);
     }
 
     // case 13
     else if (myWebsite.get_selected_animation() == BOUNCING_BALLS)
     {
-      myStrip.BouncingBalls(0xff, 0, 0, 3);
-      #ifdef DEBUG_MODE
-        Serial.println("Bouncing Balls einmal ausgefuehrt.");
-      #endif
+      myStrip.BouncingBalls(0, 0xff, 0);
+#ifdef DEBUG_MODE
+      Serial.println("Bouncing Balls einmal ausgefuehrt.");
+#endif
       delay(delay_between_animations);
     }
 
@@ -626,12 +645,12 @@ void loop()
     else if (myWebsite.get_selected_animation() == BOUNCING_BALLS_COLORED)
     {
       byte colors[3][3] = {{0xff, 0, 0},       // red
-                          {0xff, 0xff, 0xff}, // white
-                          {0, 0, 0xff}};      // blue
-      myStrip.BouncingColoredBalls(3, colors);
-      #ifdef DEBUG_MODE
-        Serial.println("Bouncing Balls Colored einmal ausgefuehrt.");
-      #endif
+                           {0xff, 0xff, 0xff}, // white
+                           {0, 0, 0xff}};      // blue
+      myStrip.BouncingColoredBalls(colors);
+#ifdef DEBUG_MODE
+      Serial.println("Bouncing Balls Colored einmal ausgefuehrt.");
+#endif
       delay(delay_between_animations);
     }
 
@@ -639,9 +658,9 @@ void loop()
     else if (myWebsite.get_selected_animation() == METEOR_RAIN)
     {
       myStrip.meteorRain(0xff, 0xff, 0xff, 10, 64, true, 30);
-      #ifdef DEBUG_MODE
-        Serial.println("Meteor Rain einmal ausgefuehrt.");
-      #endif
+#ifdef DEBUG_MODE
+      Serial.println("Meteor Rain einmal ausgefuehrt.");
+#endif
       delay(delay_between_animations);
     }
 
@@ -649,34 +668,37 @@ void loop()
     else if (myWebsite.get_selected_animation() == FIRE_ANIMATION)
     {
       myStrip.fireAnimation();
-      #ifdef DEBUG_MODE
-        Serial.println("Fire Animation einmal ausgefuehrt.");
-      #endif
+#ifdef DEBUG_MODE
+      Serial.println("Fire Animation einmal ausgefuehrt.");
+#endif
       delay(delay_between_animations);
     }
 
     else
     {
-      #ifdef DEBUG_MODE
-        Serial.println("Fail");
-      #endif
+#ifdef DEBUG_MODE
+      Serial.println("Fail");
+#endif
     }
   }
-
 
   // clear strip
   if (clear_strip)
   {
-    first_entry_to_state = true;
-    #ifdef DEBUG_MODE
-      Serial.println("Strip wurde in loop() gecleared!");
-    #endif
+#ifdef DEBUG_MODE
+    Serial.println("Strip wurde in loop() gecleared!");
+#endif
+
     myStrip.clear_show();
     clear_strip = false;
+    first_entry_to_state = true;
   }
 }
 
-
+/*
+Function that performs the corresponding actions if a switch is activated/deactivated on the website
+   function is also used for the physical buttons attached to the bed frame
+*/
 void actionsOnSwitchMoves(String switchIdString, String switchValueString)
 {
   int switchId = switchIdString.toInt();
@@ -690,17 +712,17 @@ void actionsOnSwitchMoves(String switchIdString, String switchValueString)
   case 1:
     if (switchValue)
     {
-      #ifdef DEBUG_MODE
-        Serial.println("Animation activated.");
-      #endif
+#ifdef DEBUG_MODE
+      Serial.println("Animation activated.");
+#endif
       blocked_pir_modules_because_animation_is_active = true;
       light_triggered_due_to_pirs = false;
     }
     else
     {
-      #ifdef DEBUG_MODE
-        Serial.println("Animation turned off.");
-      #endif
+#ifdef DEBUG_MODE
+      Serial.println("Animation turned off.");
+#endif
       clear_strip = true;
       blocked_pir_modules_because_animation_is_active = false;
     }
@@ -710,27 +732,26 @@ void actionsOnSwitchMoves(String switchIdString, String switchValueString)
   case 2:
     if (switchValue)
     {
-      #ifdef DEBUG_MODE
-        Serial.println("PIR blocked.");
-      #endif
+#ifdef DEBUG_MODE
+      Serial.println("PIR blocked.");
+#endif
     }
     else
     {
-      #ifdef DEBUG_MODE
-        Serial.println("Pir blocked not any more.");
-      #endif
+#ifdef DEBUG_MODE
+      Serial.println("Pir blocked not any more.");
+#endif
     }
     break;
 
   // Default - should never be called
   default:
-    #ifdef DEBUG_MODE
-      Serial.println("Default in switch statement in Fkt. 'actionsOnSwitchMoves' wurde aufgerufen.");
-    #endif
+#ifdef DEBUG_MODE
+    Serial.println("Default in switch statement in Fkt. 'actionsOnSwitchMoves' wurde aufgerufen.");
+#endif
     break;
   }
 }
-
 
 /*
 Continiously checking the flag "interruptionOccurred" which is triggered if a PIR was triggered by a movement
@@ -739,31 +760,27 @@ void pir_triggered()
 {
   if (interruptionOccurred)
   {
-    #ifdef DEBUG_MODE
-      Serial.println("PIR Modul wurde getriggered.");
-    #endif
+#ifdef DEBUG_MODE
+    Serial.println("PIR Modul wurde getriggered.");
+#endif
     timestamp_pir_module_triggered = millis();
 
-    giveTimestampOfTriggeredPirModule();
-
     myStrip.beleuchtungPIRtriggered();
-    portENTER_CRITICAL_ISR(&mux);
     interruptionOccurred = false;
-    portEXIT_CRITICAL_ISR(&mux);
 
     light_triggered_due_to_pirs = true;
   }
 
+  // clear strip if duration of active white light due to a PIR has passed and no other animation is active
   if (((unsigned long)(millis() - timestamp_pir_module_triggered) > duration_lightning_pir_triggered) && light_triggered_due_to_pirs)
   {
-    portENTER_CRITICAL_ISR(&mux);
     interruptionOccurred = false;
-    portEXIT_CRITICAL_ISR(&mux);
-    
-    #ifdef DEBUG_MODE
-      Serial.println("PIR Modul wurde getriggered - vorbei.");
-    #endif
 
+#ifdef DEBUG_MODE
+    Serial.println("PIR Modul wurde getriggered - vorbei.");
+#endif
+
+    giveTimestampOfTriggeredPirModule();
     myWebsite.increase_by_one_pirs_triggered_since_last_reboot();
     light_triggered_due_to_pirs = false;
 
@@ -778,14 +795,15 @@ void pir_triggered()
 /*
 get time in order to block pir modules when it is day
 */
+#ifndef TEST_MODE
 void get_Local_Time()
 {
   struct tm timeinfo;
   if (!getLocalTime(&timeinfo))
   {
-    #ifdef DEBUG_MODE
+#ifdef DEBUG_MODE
     Serial.println("Failed to obtain time");
-    #endif
+#endif
 
     return;
   }
@@ -822,6 +840,7 @@ void get_Local_Time()
     }
   }
 }
+#endif
 
 /*
 Get timestamp of last triggered PIR module and extend corresponding String for Website
@@ -831,14 +850,10 @@ void giveTimestampOfTriggeredPirModule()
   struct tm timeinfo;
   if (!getLocalTime(&timeinfo))
   {
-    // Serial.println("Failed to obtain time");
     return;
   }
-
-  // Serial.println(&timeinfo, "%A, %B %d %Y %H:%M:%S");
   char timestamp[40];
   strftime(timestamp, 40, "%A, %B %d %Y %H:%M:%S", &timeinfo);
-  // Serial.println(timestamp);
 
   myWebsite.append_list_timestamps_pir_triggered("<p>" + String(timestamp) + " an Modul " + String(last_triggered_pir_module) + "</p>");
 }

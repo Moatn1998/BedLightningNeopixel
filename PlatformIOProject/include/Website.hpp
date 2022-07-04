@@ -6,7 +6,7 @@ class Website
 {
     private:
     // Attributes
-        bool blocked_pir_modules = true;
+        bool blocked_pir_modules = false;
         bool animation_active = false;
 
         String sliderRot = "136";
@@ -17,8 +17,9 @@ class Website
         int pirs_triggered_since_last_reboot = 0;
         
         unsigned long timestamp_animation_active = 0;   // Timestamp to check whether animation is running for too long ==> if so, strip is cleared in main.cpp
-
+        unsigned long interval_reset_next_animation_to_RGB = 3600000;
         SELECTED_ANIMATION selected_animation = RGB;
+        SELECTED_ANIMATION previous_animation = RGB;
 
     public:
         // con-/destructor
@@ -51,10 +52,12 @@ class Website
         void set_timestamp_animation_active(unsigned long);
 
         SELECTED_ANIMATION get_selected_animation();
+        SELECTED_ANIMATION get_previous_animation();
 
         // methods
         void updateWebsite(uint8_t);
         void update_selected_animation(String new_animation);
+        void update_previous_animation();
         void select_next_animation();
         String StateOfSwitches(String mode);
 };

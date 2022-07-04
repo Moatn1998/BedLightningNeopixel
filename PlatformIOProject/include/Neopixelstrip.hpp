@@ -6,10 +6,8 @@
 
 // Neopixel
 #include <Adafruit_NeoPixel.h>
-#ifdef __AVR__
-#include <avr/power.h> // Required for 16 MHz Adafruit Trinket
-#endif
 
+#define BALLCOUNT 3
 
 class Neopixelstrip
 {
@@ -17,24 +15,21 @@ class Neopixelstrip
     // Attributes
         const uint8_t num_leds;
         const uint8_t neopixel_pin;
-        uint8_t weisse_belechtung_brightness = 175;
-        uint8_t brightness_pir_triggered = 100;
+        uint8_t weisse_belechtung_brightness = 125;//175;
+        uint8_t brightness_pir_triggered = 40;//100;
 
-        // Fire animation attributes
-        uint32_t fire_color   = 0;
-        uint32_t off_color    = 0;
-
-
-    public:
-    // Attributes
+        // Neopixel instance
         Adafruit_NeoPixel strip;
-        // Adafruit_NeoPixel& strip;
-
 
         // Website instance
         Website *psite;
 
-
+        
+        // Fire animation attributes
+        uint32_t fire_color   = 0;
+        uint32_t off_color    = 0;
+        
+    public:
     // Constructors
         Neopixelstrip(const uint8_t, const uint8_t);
         // Neopixelstrip(Adafruit_NeoPixel& init_strip);
@@ -67,9 +62,9 @@ class Neopixelstrip
         void setAll(byte, byte, byte);
         void RunningLights(byte, byte, byte, int);
         void Fire(int, int, int);
-        void BouncingBalls(byte, byte, byte, int);
+        void BouncingBalls(byte, byte, byte);
         void setPixelHeatColor(int, byte);
-        void BouncingColoredBalls(int, byte[][3]);
+        void BouncingColoredBalls(byte[][3]);
         void meteorRain(byte, byte, byte, byte, byte, boolean, int);
         void fadeToBlack(int, byte);
         void fireAnimation();

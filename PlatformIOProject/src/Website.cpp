@@ -120,6 +120,11 @@ SELECTED_ANIMATION Website::get_selected_animation()
   return this->selected_animation;
 }
 
+SELECTED_ANIMATION Website::get_previous_animation()
+{
+  return this->previous_animation;
+}
+
 
 // methods
 void Website::updateWebsite(uint8_t case_id)
@@ -204,65 +209,90 @@ void Website::update_selected_animation(String new_animation)
   {
     this->selected_animation = FIRE_ANIMATION;
   }
+
+  if (this->animation_active) this->timestamp_animation_active = millis();
 }
+
+void Website::update_previous_animation()
+{
+  this->previous_animation = this->get_selected_animation();
+}
+
 
 void Website::select_next_animation()
 {
-  switch (this->selected_animation)
+  if (this->selected_animation == RGB)
   {
-  case RGB:
     this->selected_animation = WEISS;
-    break;
-  case WEISS:
+  }
+  else if (this->selected_animation == WEISS)
+  {
     this->selected_animation = COLOR_WIPE;
-    break;
-  case COLOR_WIPE:
+  }
+  else if (this->selected_animation == COLOR_WIPE)
+  {
     this->selected_animation = THEATER_CHASE;
-    break;
-  case THEATER_CHASE:
+  }
+  else if (this->selected_animation == THEATER_CHASE)
+  {
     this->selected_animation = RAINBOW;
-    break;
-  case RAINBOW:
+  }
+  else if (this->selected_animation == RAINBOW)
+  {
     this->selected_animation = THEATER_CHASE_RAINBOW;
-    break;
-  case THEATER_CHASE_RAINBOW:
+  }
+  else if (this->selected_animation == THEATER_CHASE_RAINBOW)
+  {
     this->selected_animation = PUFF_MODUS;
-    break;
-  case PUFF_MODUS:
+  }
+  else if (this->selected_animation == PUFF_MODUS)
+  {
     this->selected_animation = CYLON_BOUNCE;
-    break;
-  case CYLON_BOUNCE:
+  }
+  else if (this->selected_animation == CYLON_BOUNCE)
+  {
     this->selected_animation = SPARKLE;
-    break;
-  case SPARKLE:
+  }
+  else if (this->selected_animation == SPARKLE)
+  {
     this->selected_animation = RUNNING_LIGHTS;
-    break;
-  case RUNNING_LIGHTS:
+  }
+  else if (this->selected_animation == RUNNING_LIGHTS)
+  {
     this->selected_animation = FIRE;
-    break;
-  case FIRE:
+  }
+  else if (this->selected_animation == FIRE)
+  {
     this->selected_animation = BOUNCING_BALLS;
-    break;
-  case BOUNCING_BALLS:
+  }
+  else if (this->selected_animation == BOUNCING_BALLS)
+  {
     this->selected_animation = BOUNCING_BALLS_COLORED;
-    break;
-  case BOUNCING_BALLS_COLORED:
+  }
+  else if (this->selected_animation == BOUNCING_BALLS_COLORED)
+  {
     this->selected_animation = METEOR_RAIN;
-    break;
-  case METEOR_RAIN:
+  }
+  else if (this->selected_animation == METEOR_RAIN)
+  {
     this->selected_animation = FIRE_ANIMATION;
-    break;
-  case FIRE_ANIMATION:
+  }
+  else if (this->selected_animation == FIRE_ANIMATION)
+  {
     this->selected_animation = RGB;
-    break;
-  default:
-    break;
+  }
+  else
+  {
+
   }
   #ifdef DEBUG_MODE
     Serial.print("next animation=");
     Serial.println(this->selected_animation);
   #endif
+
+  if (this->animation_active) this->timestamp_animation_active = millis();
 }
+
 
 String Website::StateOfSwitches(String mode)
 {
